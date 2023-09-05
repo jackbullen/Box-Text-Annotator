@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Bounding Box Annotator</title>
+        <style>
+            canvas {
+                cursor: pointer;
+                    }
+            #textInput {
+                position: absolute;
+                display: none;
+            }
+            #deleteButton, #saveButton {
+                position: absolute;
+                display: none;
+            }
+
+            #saveButton {
+                margin: 80px;
+                margin-left: 190px;
+                scale: 4;
+            }
+        </style>
+    </head>
+
+    <body>
+
+        <p>add building names then press button</p>
+        <button id="saveButton" onclick="saveData()">Save JSON</button>
+
+        <canvas id="canvas"></canvas>
+
+        <input id="textInput" type="text" onblur="hideInput()" onkeydown="checkKey(event)"/>
+        <button id="deleteButton" onclick="deleteBox()">Delete</button>
+
+        <script>
+            const canvas = document.getElementById("canvas");
+            const ctx = canvas.getContext("2d");
+            const textInput = document.getElementById("textInput");
+            const deleteButton = document.getElementById("deleteButton");
+            const saveButton = document.getElementById("saveButton");
+            let boxes = [];
+            let selectedIndex = null;
+
+            const img = new Image();
+            img.src = './zoom_in.png';
+            img.onload = function() {
+                canvas.width = img.width;
+                canvas.height = img.height;
+                ctx.drawImage(img, 0, 0);
+                fetchData();
+            };
+
+            function fetchData() {
+                fetch('/get_data').then(response => response.json()).then(data => {
+                    boxes = data;
+                    drawBoxes();
+                    saveButton.style.display = "block"; 
+                });
+            }
+
+            // draw boxes on canvas that come from fetchData above which calls the running flask app.py
+            function drawBoxes() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0);
+                boxes.forEach((box, index) => {
+                    ctx.strokeStyle = (index === selectedIndex) ? "red" : "black";
+                    ctx.strokeRect(box[1], box[0], box[3] - box[1], box[2] - box[0]);
+                    if (box[4]) {
+                        ctx.fillText(box[4], box[1], box[0] - 10);
+                    }
+                });
+            }
+
+            // highlight box on hover
+            canvas.addEventListener('mousemove', function(event) {
+                const x = event.clientX - canvas.getBoundingClientRect().left;
+                const y = event.clientY - canvas.getBoundingClientRect().top;
+                let hoverIndex = null;
+                for (let i = 0; i < boxes.length; i++) {
+                    const box = boxes[i];
+                    if (x > box[1] && x < box[3] && y > box[0] && y < box[2]) {
+                        hoverIndex = i;
+                        break;
+                    }
+                }
+                if (hoverIndex !== selectedIndex) {
+                    selectedIndex = hoverIndex;
+                    drawBoxes();
+                }
+            });
+
+            // select box listner
+            canvas.addEventListener('click', function(event) {
+                if (selectedIndex !== null) {
+                    const box = boxes[selectedIndex];
+                    showInput(box[1], box[0], box[4]);
+                }
+            });
+
+            function showInput(x, y, text) {
+                textInput.style.left = `${x}px`;
+                textInput.style.top = `${y}px`;
+                textInput.value = text;
+                textInput.style.display = "block";
+                textInput.focus();
+
+                deleteButton.style.left = `${x + 150}px`;
+                deleteButton.style.top = `${y}px`;
+                deleteButton.style.display = "block";
+            }
+
+            function hideInput() {
+                updateText(selectedIndex, textInput.value);
+                textInput.style.display = "none";
+                deleteButton.style.display = "none";
+            }
+
+            function checkKey(event) {
+                if (event.keyCode === 13) {  
+                    hideInput();
+                }
+            }
+
+            function updateText(index, text) {
+                fetch('/update_text', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({index: index, text: text})
+                }).then(response => response.json()).then(data => {
+                    if (data.status === "success") {
+                        boxes[index][4] = text;
+                        drawBoxes();
+                    }
+                });
+            }
+
+            // remove a box from the output json
+            function deleteBox() {
+                if (selectedIndex !== null) {
+                    fetch('/delete_box', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({index: selectedIndex})
+                    }).then(response => response.json()).then(data => {
+                        if (data.status === "success") {
+                            boxes.splice(selectedIndex, 1);
+                            selectedIndex = null;
+                            drawBoxes();
+                            hideInput();
+                        }
+                    });
+                }
+            }
+
+            function saveData() {
+                const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(boxes));
+                const downloadAnchorNode = document.createElement('a');
+                downloadAnchorNode.setAttribute("href", dataStr);
+                downloadAnchorNode.setAttribute("download", "updated_boxes.json");
+                document.body.appendChild(downloadAnchorNode);
+                downloadAnchorNode.click();
+                downloadAnchorNode.remove();
+            }
+
+        </script>
+    </body>
+</html>
+
+
+
